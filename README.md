@@ -8,21 +8,11 @@
 
 1. [Introduction](#1-introduction)
 2. [Problem Statement](#2-problem-statement)
-3. [Chosen Domain: Urban Road Navigation](#3-chosen-domain-urban-road-navigation)
+3. [Domain of Application](#3-domain-of-application)
 4. [The 5-Step Pipeline](#4-the-5-step-pipeline)
-   - [Step 1: Subjective Weighting (AHP)](#step-1-subjective-weighting-ahp)
-   - [Step 2: Objective Weighting (Gini Index)](#step-2-objective-weighting-gini-index)
-   - [Step 3: Weight Fusion](#step-3-weight-fusion)
-   - [Step 4: Risk Resolution (α-Hurwicz)](#step-4-risk-resolution-α-hurwicz)
-   - [Step 5: Cost Calculation and Dijkstra](#step-5-cost-calculation-and-dijkstra)
 5. [Implementation Details](#5-implementation-details)
-6. [The 4 Approaches We Compare](#6-the-4-approaches-we-compare)
+6. [The 4 Approaches Compared](#6-the-4-approaches-compared)
 7. [Experiments and Results](#7-experiments-and-results)
-   - [Single Graph Comparison](#71-single-graph-comparison)
-   - [Path Visualization](#72-path-visualization)
-   - [Per-Criterion Analysis](#73-per-criterion-analysis)
-   - [Sensitivity Analysis](#74-sensitivity-analysis)
-   - [Scalability Experiments](#75-scalability-experiments-small-n-to-large-n)
 8. [Discussion](#8-discussion)
 9. [Conclusion](#9-conclusion)
 10. [How to Run](#10-how-to-run)
@@ -32,242 +22,238 @@
 
 ## 1. Introduction
 
-Finding the best route between two points is a classic problem in computer science. The simplest and most well-known solution is **Dijkstra's algorithm**, which finds the shortest path based on a single criterion — usually distance.
+Finding the best route between two points is one of the most studied problems in computer science. The most well-known solution is Dijkstra's algorithm, which finds the shortest path based on a single criterion, usually distance.
 
-But in the real world, the "best" route is not just the shortest one. A driver also cares about:
+However, in real-world navigation, the "best" route is not necessarily the shortest one. A driver also cares about travel time, road safety, and traffic congestion. A route that is short in distance may be dangerous, slow due to traffic, or pass through a high-accident zone.
 
-- How **long** the trip takes (travel time)
-- How **safe** the road is (accident risk)
-- How **congested** the road is (traffic jams)
+This project improves Dijkstra's algorithm by introducing a 5-step pipeline that considers multiple criteria simultaneously and handles real-world uncertainty. The pipeline combines:
 
-This project improves Dijkstra's algorithm by adding **multiple criteria** and **uncertainty handling** to find routes that are not just short, but also fast, safe, and congestion-free.
+- The Analytic Hierarchy Process (AHP) for capturing expert judgment
+- The Gini Index for data-driven objective weighting
+- The Hurwicz criterion for handling uncertainty under incomplete information
+- Dijkstra's algorithm for computing the optimal path
 
-We use a **5-step pipeline** that combines:
-
-- **AHP** (expert judgment) to decide which criteria matter most
-- **Gini Index** (data analysis) to let the data speak for itself
-- **Hurwicz criterion** to handle uncertainty (best-case vs worst-case)
-- **Dijkstra** to find the optimal path using all of the above
+The result is a system that finds routes which are not just short, but also fast, safe, and congestion-free.
 
 ---
 
 ## 2. Problem Statement
 
-Standard Dijkstra only optimizes one thing: distance. It ignores safety, travel time, and congestion. This can lead to routes that are short but dangerous, slow, or stuck in traffic.
+Standard Dijkstra's algorithm optimizes a single criterion: distance. It ignores all other factors that affect route quality. This leads to paths that may be geometrically short but practically poor, being dangerous, congested, or slow.
 
-**Our goal**: Build a system that considers multiple criteria at the same time, handles uncertainty in real-world data, and still finds the mathematically optimal route.
+The goal of this project is to build a multi-criteria route optimization system that:
 
-We compare **4 approaches** to show how each step of our pipeline improves the result:
+- Considers multiple criteria simultaneously (distance, time, safety, congestion)
+- Incorporates both expert opinion and data analysis for weighting
+- Handles uncertainty in real-world conditions (traffic varies, accidents are random)
+- Finds the mathematically optimal path considering all of the above
 
-| # | Approach | What it uses |
-|---|----------|-------------|
-| 1 | Plain Dijkstra | Distance only |
-| 2 | AHP + α-Hurwicz + Dijkstra | Expert weights + uncertainty |
-| 3 | Gini + α-Hurwicz + Dijkstra | Data-driven weights + uncertainty |
-| 4 | AHP + Gini + α-Hurwicz + Dijkstra | Expert + data + uncertainty (full pipeline) |
+We compare four approaches to demonstrate how each component of the pipeline contributes to the final result:
+
+| Number | Approach | Components Used |
+|--------|----------|----------------|
+| 1 | Plain Dijkstra | Distance only (baseline) |
+| 2 | AHP + Hurwicz + Dijkstra | Expert weights + uncertainty handling |
+| 3 | Gini + Hurwicz + Dijkstra | Data-driven weights + uncertainty handling |
+| 4 | AHP + Gini + Hurwicz + Dijkstra | Full pipeline (all components) |
 
 ---
 
-## 3. Chosen Domain: Urban Road Navigation
+## 3. Domain of Application
 
-We simulate an **urban road network** where:
+The chosen domain is Urban Road Navigation. We model a city's road network as a directed graph G(V, E) where:
 
-- **Nodes** = intersections (10 to 2000 nodes in our experiments)
-- **Edges** = road segments connecting intersections
+- V = set of intersection nodes (|V| = N)
+- E = set of road segments connecting intersections (|E| = M)
 
-Each road segment has **4 criteria**, and each criterion has an **interval** [x_min, x_max] to represent uncertainty:
+Each road segment (edge) carries four criteria, and each criterion has an interval [x_min, x_max] representing uncertainty:
 
-| Criterion | What it measures | Unit | Uncertainty |
-|-----------|-----------------|------|-------------|
-| **Distance** | Length of the road | km | Low (roads don't change length) |
-| **Travel Time** | How long to drive it | minutes | Moderate (depends on traffic) |
-| **Safety Risk** | Accident probability | 0–1 index | High (random events) |
-| **Congestion** | Traffic jam level | 0–1 index | High (changes by hour) |
+| Criterion | Description | Unit | Uncertainty Level |
+|-----------|-------------|------|-------------------|
+| Distance | Physical length of the road | Kilometers | Low (roads rarely change length) |
+| Travel Time | Duration to traverse the road | Minutes | Moderate (varies with traffic flow) |
+| Safety Risk | Probability of accidents | Index from 0 to 1 | High (random, unpredictable events) |
+| Congestion | Level of traffic congestion | Index from 0 to 1 | High (changes with time of day) |
 
-The intervals capture real-world uncertainty. For example, a road's travel time might be 5 minutes in the best case but 12 minutes in the worst case (rush hour).
+The intervals capture real-world uncertainty. For example, a road's travel time might be 5 minutes in the best case (no traffic) but 12 minutes in the worst case (rush hour). The system does not assume perfect knowledge; instead, it explicitly models this uncertainty.
 
 ---
 
 ## 4. The 5-Step Pipeline
 
-### Step 1: Subjective Weighting (AHP)
+### Step 1: Subjective Weighting with AHP
 
-**What**: The Analytic Hierarchy Process (AHP) lets a human expert express how important each criterion is compared to the others.
+The Analytic Hierarchy Process (AHP), developed by Thomas Saaty in 1980, is a method for deriving priority weights from pairwise comparisons made by a human expert.
 
-**How**: The expert fills in a **pairwise comparison matrix**. For each pair of criteria, they answer: "How much more important is criterion A than criterion B?" using a scale from 1 (equal) to 9 (extremely more important).
+The expert fills a comparison matrix where each entry a[i][j] answers: "How many times more important is criterion i compared to criterion j?" using the Saaty scale (1 = equal, 3 = moderate, 5 = strong, 7 = very strong, 9 = extreme).
 
-Our comparison matrix represents a **safety-conscious driver**:
+Our comparison matrix represents a safety-conscious driver:
 
 |  | Distance | Travel Time | Safety Risk | Congestion |
 |---|----------|-------------|-------------|------------|
-| **Distance** | 1 | 1/3 | 1/5 | 3 |
-| **Travel Time** | 3 | 1 | 1/3 | 5 |
-| **Safety Risk** | 5 | 3 | 1 | 7 |
-| **Congestion** | 1/3 | 1/5 | 1/7 | 1 |
+| Distance | 1 | 1/3 | 1/5 | 3 |
+| Travel Time | 3 | 1 | 1/3 | 5 |
+| Safety Risk | 5 | 3 | 1 | 7 |
+| Congestion | 1/3 | 1/5 | 1/7 | 1 |
 
-Reading the matrix: "Safety Risk is **5 times** more important than Distance" and "Travel Time is **3 times** more important than Distance".
+Reading example: Safety Risk is 5 times more important than Distance. Travel Time is 3 times more important than Distance.
 
-**The math**: We compute the principal eigenvector of this matrix and normalize it to get the weight vector.
+The weight vector is computed using the principal eigenvector method. The principal eigenvalue lambda_max is extracted, and the corresponding eigenvector is normalized to sum to 1.
 
-**Output — Subjective Weight Vector**:
+Consistency is verified using the Consistency Ratio (CR = CI / RI), where CI = (lambda_max - n) / (n - 1) and RI is the Random Index from Saaty's table. A CR below 0.10 indicates acceptable consistency.
+
+Results:
 
 ```
-Ws = [0.1175, 0.2622, 0.5650, 0.0553]
-       Dist    Time    Safety  Cong
+Subjective Weight Vector:
+  Ws = [0.1175, 0.2622, 0.5650, 0.0553]
+        Distance  Time    Safety  Congestion
+
+  lambda_max = 4.1170
+  CI = 0.0390
+  CR = 0.0433 (< 0.10, consistent)
 ```
 
-This means: Safety gets 56.5% of the weight, Travel Time gets 26.2%, Distance gets 11.8%, and Congestion gets 5.5%.
-
-**Consistency Check**: We verify the expert's judgments are consistent using the **Consistency Ratio (CR)**. Our CR = **0.0433**, which is below the 0.10 threshold — the judgments are consistent ✓.
+Safety Risk receives 56.5% of the total weight, confirming the safety-first priority. Travel Time gets 26.2%, Distance 11.8%, and Congestion 5.5%.
 
 ![AHP Analysis](results/ahp_analysis.png)
 
-*Left: The pairwise comparison matrix as a heatmap. Right: The derived priority weights showing Safety Risk dominates.*
+The left side shows the pairwise comparison matrix as a heatmap. The right side shows the derived priority weights, with Safety Risk clearly dominating.
 
 ---
 
-### Step 2: Objective Weighting (Gini Index)
+### Step 2: Objective Weighting with Gini Index
 
-**What**: While AHP captures the expert's opinion, the Gini Index looks at the **actual data** in the graph to assign weights automatically.
+While AHP captures the expert's subjective opinion, the Gini Index provides an objective, data-driven weight assignment. It analyzes the actual distribution of criterion values across all edges in the graph.
 
-**How**: For each criterion, we calculate the **Gini coefficient** across all edges in the network. The Gini coefficient measures inequality:
+The Gini coefficient measures inequality in a dataset:
+- Gini = 0 means all values are identical (no discriminating power)
+- Gini = 1 means maximum inequality (high discriminating power)
 
-- **Gini = 0**: All edges have the same value (no useful information)
-- **Gini = 1**: Maximum inequality (very useful for distinguishing edges)
+For each criterion, we compute the Gini coefficient across all edges using the midpoint values (x_min + x_max) / 2. A criterion with higher Gini gets a higher objective weight because it provides more information to distinguish between good and bad routes.
 
-A criterion with **higher variance** (higher Gini) gets a **higher weight** because it provides more information to distinguish between good and bad routes.
-
-**Output — Objective Weight Vector**:
+The formula for the Gini coefficient of sorted values x_1, x_2, ..., x_n:
 
 ```
-Wo = [0.2480, 0.2759, 0.2408, 0.2353]
-       Dist    Time    Safety  Cong
+G = (2 * sum(i * x_i)) / (n * sum(x_i)) - (n + 1) / n
 ```
 
-The Gini weights are nearly **uniform** (~25% each), meaning all criteria show similar levels of variance in this network. This is very different from the AHP weights, where Safety dominated at 56.5%.
+Results:
 
-| Criterion | Gini Coefficient | Gini Weight |
-|-----------|-----------------|-------------|
-| Distance | 0.2900 | 0.2480 |
-| Travel Time | 0.3226 | 0.2759 |
-| Safety Risk | 0.2816 | 0.2408 |
-| Congestion | 0.2751 | 0.2353 |
+```
+Objective Weight Vector:
+  Criterion          Gini Coefficient    Weight (Wo)
+  Distance           0.2900              0.2480
+  Travel Time        0.3226              0.2759
+  Safety Risk        0.2816              0.2408
+  Congestion         0.2751              0.2353
+
+  Wo = [0.2480, 0.2759, 0.2408, 0.2353]
+```
+
+The Gini weights are nearly uniform (around 25% each), meaning all criteria show similar levels of variance in this network. This is significantly different from the AHP weights where Safety dominated at 56.5%.
 
 ---
 
 ### Step 3: Weight Fusion
 
-**What**: We blend the subjective (AHP) and objective (Gini) weights into a single **comprehensive weight vector** using a parameter β.
-
-**Formula**:
+The subjective (AHP) and objective (Gini) weight vectors are blended into a single comprehensive weight vector using a fusion coefficient beta:
 
 ```
-W = β × Ws + (1 - β) × Wo
+W = beta * Ws + (1 - beta) * Wo
 ```
 
 Where:
-- **β = 1**: Use only expert judgment (AHP)
-- **β = 0**: Use only data analysis (Gini)
-- **β = 0.5**: Equal blend of both (our default)
+- beta = 1 means using only expert judgment (AHP only)
+- beta = 0 means using only data analysis (Gini only)
+- beta = 0.5 means equal blend of both (our default)
 
-**Output — Comprehensive Weight Vector** (β = 0.5):
+Results with beta = 0.5:
 
 ```
-W = [0.1828, 0.2690, 0.4029, 0.1453]
-      Dist    Time    Safety  Cong
+Comprehensive Weight Vector:
+  Criterion        Ws (AHP)    Wo (Gini)   W (Fused)
+  Distance         0.1175      0.2480      0.1828
+  Travel Time      0.2622      0.2759      0.2690
+  Safety Risk      0.5650      0.2408      0.4029
+  Congestion       0.0553      0.2353      0.1453
 ```
 
-Safety Risk is still the most important (40.3%), but it is now balanced by the data-driven Gini weights. This creates a weight vector that respects both the expert's priorities and the actual distribution of the data.
+Safety Risk remains the most important criterion at 40.3%, but it is now balanced by the data-driven Gini weights. This creates a weight vector that respects both the expert's priorities and the actual data distribution.
 
 ![Weight Comparison](results/weight_comparison.png)
 
-*Comparison of the three weight vectors. AHP heavily favors Safety, Gini treats all criteria roughly equally, and the Fused vector balances both.*
+This chart compares all three weight vectors side by side. AHP heavily favors Safety, Gini treats all criteria roughly equally, and the Fused vector provides a balanced compromise.
 
 ---
 
-### Step 4: Risk Resolution (α-Hurwicz)
+### Step 4: Risk Resolution with alpha-Hurwicz
 
-**What**: Every edge has uncertain values [x_min, x_max] for each criterion. We need to reduce each interval to a **single number** to use in Dijkstra. The Hurwicz criterion does this using an optimism parameter α.
-
-**Formula**:
+Every edge has uncertain values [x_min, x_max] for each criterion. The Hurwicz criterion resolves each interval into a single expected value using an optimism coefficient alpha:
 
 ```
-V = α × x_min + (1 - α) × x_max
+V = alpha * x_min + (1 - alpha) * x_max
 ```
 
 Where:
-- **α = 1**: Fully optimistic — assume the best case
-- **α = 0**: Fully pessimistic — assume the worst case
-- **α = 0.5**: Balanced — average of best and worst (our default)
+- alpha = 1 means fully optimistic (assume best case for every road)
+- alpha = 0 means fully pessimistic (assume worst case for every road)
+- alpha = 0.5 means balanced (average of best and worst cases)
 
-**Example**: If a road's travel time is [5 min, 12 min]:
-- α = 1.0: V = 5.0 min (optimistic)
-- α = 0.5: V = 8.5 min (balanced)
-- α = 0.0: V = 12.0 min (pessimistic)
+Example: If a road's travel time interval is [5 min, 12 min]:
+- alpha = 1.0: V = 1.0 * 5 + 0.0 * 12 = 5.0 minutes (optimistic)
+- alpha = 0.5: V = 0.5 * 5 + 0.5 * 12 = 8.5 minutes (balanced)
+- alpha = 0.0: V = 0.0 * 5 + 1.0 * 12 = 12.0 minutes (pessimistic)
 
-This step converts every edge's uncertain interval into a single expected value for each criterion.
+This step converts every edge's uncertain interval into a single expected value for each criterion, making the data ready for cost computation.
 
 ---
 
-### Step 5: Cost Calculation and Dijkstra
+### Step 5: Cost Calculation and Dijkstra Optimization
 
-**What**: Now we combine everything. For each edge (i, j) in the graph, we compute a single composite cost:
-
-**Formula**:
+The comprehensive weights (W) from Step 3 and the Hurwicz values (V) from Step 4 are combined to compute a single composite cost for every edge:
 
 ```
-C_ij = Σ (wk × V_ij^k)    for k = 1 to n criteria
+C_ij = sum(wk * V_ij_k) for k = 1 to n
 ```
 
 Where:
-- `wk` = the comprehensive weight for criterion k (from Step 3)
-- `V_ij^k` = the Hurwicz value for criterion k on edge (i,j) (from Step 4)
+- wk is the comprehensive weight for criterion k
+- V_ij_k is the Hurwicz value for criterion k on edge (i, j)
 
-This turns a multi-criteria problem into a **single-number cost** per edge. Then we run **Dijkstra's algorithm** using these costs to find the optimal path.
+This transforms a multi-criteria optimization problem into a standard single-objective shortest path problem. Dijkstra's algorithm then runs using these composite costs to find the path with minimum total cost.
 
-**Why this works**: The composite cost captures all four criteria, weighted by importance, and handles uncertainty. Dijkstra then finds the path that minimizes this composite cost — giving us the mathematically best route considering everything.
+The algorithm uses a min-heap priority queue with time complexity O((V + E) * log V), the same as standard Dijkstra. The only additional cost is the dot product computation per edge, which is O(n) where n is the number of criteria (constant = 4 in our case).
 
 ---
 
 ## 5. Implementation Details
 
-The project is written in **Python** and uses:
+The project is implemented in Python using:
 
-- **NumPy** — for matrix operations (AHP eigenvectors, Gini calculation)
-- **NetworkX** — for graph data structures and connectivity checks
-- **Matplotlib** — for generating all charts and figures
-- **Tabulate** — for formatted console output tables
+- NumPy for matrix operations (eigenvector computation, Gini calculation)
+- NetworkX for graph data structures and connectivity verification
+- Matplotlib for generating all charts and figures
+- Tabulate for formatted output tables
 
-| File | What it does |
-|------|-------------|
-| `graph_generator.py` | Creates random urban road networks with multi-criteria edges |
-| `ahp.py` | Step 1 — AHP pairwise comparison and eigenvector method |
-| `gini_weights.py` | Step 2 — Gini coefficient calculation across the network |
-| `pipeline.py` | Steps 3–5 — Weight fusion, Hurwicz, composite cost, Dijkstra |
-| `experiments.py` | Runs all comparisons and scalability tests |
-| `visualizations.py` | Generates all 7 figures |
-| `main.py` | Entry point that runs everything |
+Two graph generators are provided:
 
-### Graph Generation
+1. Erdos-Renyi model: Used for the demonstration graph. Each pair of nodes has a fixed probability of being connected. Nodes are placed randomly on a 2D plane, and edge distances derive from Euclidean distance between node positions.
 
-We use two graph generators:
+2. Nearest-neighbor model: Used for scalability experiments. Each node connects to its nearest neighbors plus some random nodes, keeping the edge count at O(N * avg_degree) for fair comparison across different graph sizes.
 
-1. **Erdős–Rényi model** (for the demo): Each pair of nodes has a fixed probability of being connected. Nodes are placed randomly on a 2D plane, and edge distances are based on Euclidean distance.
-
-2. **Nearest-neighbor model** (for scalability tests): Each node connects to its nearest neighbors plus some random nodes. This keeps the edge count at O(N × avg_degree) for fair scalability comparison.
-
-Both generators ensure the graph is **strongly connected** (you can reach any node from any other node).
+Both generators ensure strong connectivity (every node can reach every other node).
 
 ---
 
-## 6. The 4 Approaches We Compare
+## 6. The 4 Approaches Compared
 
-| Approach | Steps Used | Description |
-|----------|-----------|-------------|
-| **Plain Dijkstra** | Step 5 only | Uses average distance as edge weight. No multi-criteria, no uncertainty handling. This is the **baseline**. |
-| **AHP + Hurwicz + Dijkstra** | Steps 1, 4, 5 | Uses only the expert's subjective weights (AHP). Handles uncertainty with Hurwicz. Ignores data-driven Gini weights. |
-| **Gini + Hurwicz + Dijkstra** | Steps 2, 4, 5 | Uses only data-driven Gini weights. Handles uncertainty with Hurwicz. Ignores the expert's preferences. |
-| **Full Pipeline** | Steps 1–5 | Uses both AHP and Gini weights, fused together. Handles uncertainty. This is the **complete system**. |
+| Approach | Pipeline Steps | Description |
+|----------|---------------|-------------|
+| Plain Dijkstra | Step 5 only | Uses average distance as the edge weight. No multi-criteria consideration, no uncertainty handling. This is the baseline. |
+| AHP + Hurwicz + Dijkstra | Steps 1, 4, 5 | Uses only the expert's subjective weights from AHP. Handles uncertainty with Hurwicz. Does not use data-driven Gini weights. |
+| Gini + Hurwicz + Dijkstra | Steps 2, 4, 5 | Uses only data-driven Gini weights. Handles uncertainty with Hurwicz. Does not use the expert's preferences. |
+| Full Pipeline | Steps 1 to 5 | Uses both AHP and Gini weights fused together with beta. Handles uncertainty with alpha-Hurwicz. This is the complete system. |
 
 ---
 
@@ -275,16 +261,16 @@ Both generators ensure the graph is **strongly connected** (you can reach any no
 
 ### 7.1 Single Graph Comparison
 
-We tested all 4 approaches on a graph with **40 nodes** and **264 edges**, finding the best path from node 0 to node 39.
+All 4 approaches were tested on a graph with 40 nodes and 264 edges, finding the optimal path from node 0 to node 39.
 
-| Approach | Path | # Edges | Composite Cost | Time (ms) |
-|----------|------|---------|----------------|-----------|
-| Dijkstra | 0 → 39 | 1 | **8.4326** | 0.15 |
-| AHP + Hurwicz + Dijkstra | 0 → 22 → 39 | 2 | **3.7800** | 0.48 |
-| Gini + Hurwicz + Dijkstra | 0 → 22 → 39 | 2 | **5.1675** | 0.53 |
-| Full Pipeline (AHP+Gini+Hurwicz) | 0 → 22 → 39 | 2 | **4.4737** | 0.86 |
+| Approach | Path | Number of Edges | Composite Cost | Execution Time |
+|----------|------|-----------------|----------------|----------------|
+| Dijkstra | 0 to 39 | 1 | 8.4326 | 0.15 ms |
+| AHP + Hurwicz + Dijkstra | 0 to 22 to 39 | 2 | 3.7800 | 0.48 ms |
+| Gini + Hurwicz + Dijkstra | 0 to 22 to 39 | 2 | 5.1675 | 0.53 ms |
+| Full Pipeline | 0 to 22 to 39 | 2 | 4.4737 | 0.86 ms |
 
-**Key observation**: Plain Dijkstra takes the direct route (1 edge) because it only cares about distance. But its composite cost (8.43) is **more than double** the multi-criteria approaches. The three multi-criteria methods all route through node 22, which is a safer and less congested waypoint.
+Plain Dijkstra takes the direct route (1 edge) because it only considers distance. However, its composite cost (8.43) is more than double the multi-criteria approaches. The three multi-criteria methods all route through node 22, which provides a safer and less congested path despite being slightly longer in distance.
 
 ---
 
@@ -292,17 +278,14 @@ We tested all 4 approaches on a graph with **40 nodes** and **264 edges**, findi
 
 ![Path Comparison](results/graph_paths.png)
 
-**What the graph shows**:
+This figure shows the full road network with all four paths highlighted:
 
-- **Gray dots and lines**: The full road network (40 intersections, 264 roads)
-- **Green circle (S=0)**: Starting point
-- **Black star (T=39)**: Destination
-- **Blue solid line**: Dijkstra — goes directly from 0 to 39 (shortest distance)
-- **Red dashed line**: AHP + Hurwicz — detours through node 22
-- **Green dotted line**: Gini + Hurwicz — same detour through node 22
-- **Purple dash-dot line**: Full Pipeline — same detour through node 22
+- The blue solid line shows the Dijkstra path (direct route, 0 to 39)
+- The red dashed line shows the AHP + Hurwicz path (through node 22)
+- The green dotted line shows the Gini + Hurwicz path (through node 22)
+- The purple dash-dot line shows the Full Pipeline path (through node 22)
 
-The yellow warning box confirms that all 3 multi-criteria approaches found the **same route**. This is a strong result: regardless of how we weight the criteria (expert-based, data-driven, or combined), the system agrees that going through node 22 is better than the direct route. The direct route (Dijkstra) may be shorter in distance, but it is worse in terms of safety and congestion.
+All three multi-criteria approaches found the same route. This is a strong validation result: regardless of how the criteria are weighted (expert-based, data-driven, or combined), the system agrees that routing through node 22 is superior to the direct path. The direct Dijkstra route is shorter in distance but worse in overall quality when safety, time, and congestion are considered.
 
 ---
 
@@ -310,130 +293,123 @@ The yellow warning box confirms that all 3 multi-criteria approaches found the *
 
 ![Criterion Comparison](results/criterion_comparison.png)
 
-This chart breaks down **how each approach performs on each criterion** along the chosen path:
-
-| Criterion | Dijkstra | Multi-Criteria Methods |
-|-----------|----------|----------------------|
+| Criterion | Dijkstra | Multi-Criteria Approaches |
+|-----------|----------|--------------------------|
 | Distance | 8.433 km | 8.695 km (slightly longer) |
-| Travel Time | 10.988 min | 9.594 min (faster!) |
-| Safety Risk | 0.183 | 0.309 (a bit higher) |
-| Congestion | 0.387 | 1.231 (higher) |
+| Travel Time | 10.988 min | 9.594 min (14.5% faster) |
+| Safety Risk | 0.183 | 0.309 |
+| Congestion | 0.387 | 1.231 |
 
-**Reading the results**: Dijkstra wins on distance (slightly shorter) and has lower raw safety/congestion numbers. But the multi-criteria approaches find a path that is **faster** (9.6 min vs 11.0 min) and the composite cost is much lower because the weights prioritize time and safety over raw distance.
+The multi-criteria approaches find a path that is slightly longer in distance (+3%) but significantly faster in travel time (-14.5%). The composite cost is much lower because the weights prioritize time and safety over raw distance.
 
 ---
 
 ### 7.4 Sensitivity Analysis
 
-We tested how the results change when we adjust the two key parameters: α (optimism) and β (fusion balance).
-
-#### α-Hurwicz Sensitivity
+#### Alpha-Hurwicz Sensitivity
 
 ![Alpha Sensitivity](results/sensitivity_alpha.png)
 
-- **Left chart**: As α increases from 0 (pessimistic) to 1 (optimistic), the composite cost drops from **5.02 to 3.93**. This makes sense: an optimistic decision-maker assumes the best-case values, resulting in lower costs.
-- **Right chart**: The per-criterion values stay stable because the same path is chosen at all α values. Only the cost weighting changes.
+As alpha increases from 0 (pessimistic) to 1 (optimistic), the composite cost drops from 5.02 to 3.93. An optimistic decision-maker assumes best-case values, resulting in lower costs. A cautious decision-maker (alpha = 0) plans for worst-case conditions.
 
-**What this means**: α acts as a "risk dial". A cautious driver (α = 0) plans for the worst case. An optimistic driver (α = 1) assumes everything will go well. The default (α = 0.5) is a balanced middle ground.
+The per-criterion values along the path remain stable across all alpha values because the same path is selected regardless of the optimism level. Only the cost weighting changes.
 
-#### β-Fusion Sensitivity
+#### Beta-Fusion Sensitivity
 
 ![Beta Sensitivity](results/sensitivity_beta.png)
 
-- **Left chart**: As β moves from 0 (fully data-driven/Gini) to 1 (fully expert/AHP), the cost drops from **5.17 to 3.78**. This is because the AHP weights heavily favor safety, which helps minimize the composite cost for this particular graph.
-- **Right chart**: The path remains the same across all β values, showing robustness.
+As beta moves from 0 (fully data-driven) to 1 (fully expert-driven), the cost drops from 5.17 to 3.78. The AHP weights, which heavily favor safety, produce lower composite costs for this particular network because they heavily penalize unsafe edges.
 
-**What this means**: β controls the balance between trusting the expert and trusting the data. In this case, the expert's safety-focused priorities happen to produce lower costs, but the data-driven approach ensures the system doesn't over-rely on subjective opinions.
+The path remains stable across all beta values, demonstrating robustness of the solution.
 
 ---
 
 ### 7.5 Scalability Experiments (Small N to Large N)
 
-We tested all 4 approaches on graphs of increasing size, from **N = 10** to **N = 2000** nodes. Each graph has approximately 6 edges per node (controlled average degree). For each size, we run **5 random source-target pairs** and average the results.
+Experiments were conducted on graphs of increasing size from N = 10 to N = 2000 nodes. Each graph has approximately 6 edges per node (controlled average degree). For each size, 5 random source-target pairs were tested and results averaged.
 
-#### Execution Time
+#### Execution Time Results (milliseconds)
 
-| N (nodes) | |E| (edges) | Dijkstra | AHP+Hurwicz | Gini+Hurwicz | Full Pipeline |
-|-----------|------------|----------|-------------|--------------|---------------|
-| 10 | 60 | 0.08 ms | 0.34 ms | 0.45 ms | 0.30 ms |
-| 50 | 300 | 0.30 ms | 1.09 ms | 1.05 ms | 1.02 ms |
-| 200 | 1,200 | 1.01 ms | 3.61 ms | 3.45 ms | 3.24 ms |
-| 500 | 3,000 | 1.62 ms | 6.83 ms | 7.41 ms | 6.29 ms |
-| 1,000 | 6,008 | 1.67 ms | 9.33 ms | 7.79 ms | 7.59 ms |
-| 2,000 | 12,002 | 9.27 ms | 31.04 ms | 29.68 ms | 29.74 ms |
+| N | Edges | Dijkstra | AHP+Hurwicz | Gini+Hurwicz | Full Pipeline |
+|---|-------|----------|-------------|--------------|---------------|
+| 10 | 60 | 0.084 | 0.338 | 0.445 | 0.302 |
+| 20 | 120 | 0.163 | 0.555 | 0.618 | 0.580 |
+| 50 | 300 | 0.303 | 1.086 | 1.048 | 1.020 |
+| 100 | 600 | 0.411 | 2.328 | 1.879 | 1.937 |
+| 200 | 1200 | 1.014 | 3.608 | 3.446 | 3.244 |
+| 500 | 3000 | 1.622 | 6.833 | 7.407 | 6.287 |
+| 1000 | 6008 | 1.668 | 9.330 | 7.786 | 7.593 |
+| 2000 | 12002 | 9.265 | 31.040 | 29.684 | 29.739 |
 
-#### Composite Path Cost
+#### Composite Path Cost Results (average)
 
-| N (nodes) | Dijkstra | AHP+Hurwicz | Gini+Hurwicz | Full Pipeline |
-|-----------|----------|-------------|--------------|---------------|
-| 10 | 7.14 | **3.85** | 4.51 | 4.18 |
-| 50 | 7.65 | **4.23** | 6.08 | 5.18 |
-| 200 | 7.68 | **4.72** | 6.77 | 5.74 |
-| 500 | 6.12 | **4.16** | 5.84 | 5.04 |
-| 1,000 | 4.29 | **3.18** | 4.22 | 3.74 |
-| 2,000 | 6.84 | **4.50** | 6.26 | 5.38 |
+| N | Dijkstra | AHP+Hurwicz | Gini+Hurwicz | Full Pipeline |
+|---|----------|-------------|--------------|---------------|
+| 10 | 7.14 | 3.85 | 4.51 | 4.18 |
+| 50 | 7.65 | 4.23 | 6.08 | 5.18 |
+| 200 | 7.68 | 4.72 | 6.77 | 5.74 |
+| 500 | 6.12 | 4.16 | 5.84 | 5.04 |
+| 1000 | 4.29 | 3.18 | 4.22 | 3.74 |
+| 2000 | 6.84 | 4.50 | 6.26 | 5.38 |
 
 ![Scalability Charts](results/scalability.png)
 
-**Key findings from scalability tests**:
+Key observations:
 
-1. **Time complexity**: All 4 approaches show the same growth rate. Plain Dijkstra is about 3–4× faster in absolute terms because it only computes a simple weight per edge, while the multi-criteria approaches compute 4 Hurwicz values + a dot product per edge. But the **asymptotic complexity is the same**: O((V + E) × log V).
+1. All four approaches exhibit the same asymptotic growth rate O((V+E) log V). Plain Dijkstra is approximately 3-4 times faster in absolute terms because it computes only a simple weight per edge, while multi-criteria approaches compute four Hurwicz values plus a dot product per edge.
 
-2. **Cost improvement**: Across all graph sizes, the multi-criteria approaches consistently find paths with **30–55% lower composite cost** than plain Dijkstra. The AHP-based approach performs best because the expert weights are well-tuned.
+2. Across all graph sizes, the multi-criteria approaches consistently find paths with 30-55% lower composite cost than plain Dijkstra.
 
-3. **Scalability**: Even at N = 2,000 nodes with 12,000 edges, the full pipeline completes in under **30 milliseconds**. The system is practical for real-time navigation.
+3. Even at N = 2000 nodes with 12000 edges, the full pipeline completes in under 30 milliseconds, demonstrating practical viability for real-time navigation.
 
 ---
 
 ## 8. Discussion
 
-### Why does multi-criteria routing matter?
+### Value of Multi-Criteria Routing
 
-Plain Dijkstra finds the shortest path — but "shortest" only means smallest distance. In our experiments, Dijkstra's path had a composite cost of **8.43**, while the full pipeline's path cost only **4.47**. That is a **47% improvement** in overall route quality.
+Plain Dijkstra finds the shortest path, but "shortest" only means smallest distance. In our experiments, Dijkstra's path had a composite cost of 8.43 while the full pipeline achieved 4.47, a 47% improvement in overall route quality.
 
-### What does each step add?
+### Contribution of Each Component
 
-| Step | What it adds | Without it |
-|------|-------------|------------|
-| AHP | Expert priorities (e.g., "safety is most important") | All criteria treated equally or ignored |
-| Gini | Data-driven correction (criteria with more variance get more weight) | Relies only on subjective opinion |
-| Fusion | Balance between expert and data | Over-reliance on one source |
-| Hurwicz | Handles uncertainty (best/worst case) | Assumes perfect information |
+| Component | What It Adds | Without It |
+|-----------|-------------|------------|
+| AHP | Expert priorities (safety is most important) | All criteria treated equally or ignored |
+| Gini | Data-driven correction based on actual variance | Over-reliance on subjective opinion |
+| Fusion (beta) | Balance between expert and data | Dependence on a single source |
+| Hurwicz (alpha) | Handles uncertainty with best/worst case analysis | Assumption of perfect information |
 
-### When do the approaches differ?
+### When Do the Approaches Produce Different Paths?
 
-In our 40-node experiment, all 3 multi-criteria approaches found the same path. This happens because the graph is small and the "best" route is clearly better than alternatives regardless of exact weights. In larger or more complex networks, the approaches will produce **different paths** because the weight differences matter more when there are many competing routes.
+In the 40-node experiment, all three multi-criteria approaches found the same path because the graph is small and the optimal route is clearly superior regardless of exact weight values. In larger or more complex networks, the approaches produce different paths because weight differences matter more when many competing routes exist.
 
 ### Trade-offs
 
-- **Speed vs quality**: Multi-criteria approaches are 3–4× slower than plain Dijkstra, but still take only milliseconds. The quality improvement is worth the small time cost.
-- **Subjectivity vs objectivity**: AHP depends on expert judgment, which can be biased. Gini is unbiased but may not reflect user preferences. The fusion (β) parameter lets you choose the balance.
-- **Risk tolerance**: The α parameter lets users choose between optimistic and pessimistic planning. There is no "correct" value — it depends on the situation.
+Regarding speed versus quality: multi-criteria approaches are 3-4 times slower than plain Dijkstra, but still complete in milliseconds. The quality improvement justifies the small additional computation time.
+
+Regarding subjectivity versus objectivity: AHP depends on expert judgment which can be biased. Gini is unbiased but may not match user preferences. The beta parameter allows the user to choose the desired balance.
+
+Regarding risk tolerance: the alpha parameter allows users to choose between optimistic and pessimistic planning. There is no universally correct value; it depends on the specific situation and the decision-maker's risk attitude.
 
 ---
 
 ## 9. Conclusion
 
-We implemented a **5-step pipeline** that transforms Dijkstra's algorithm from a simple shortest-path finder into a multi-criteria optimization system for urban road navigation.
+This project implemented a 5-step pipeline that transforms Dijkstra's algorithm from a simple shortest-path finder into a multi-criteria optimization system for urban road navigation.
 
-### Main results:
+Main findings:
 
-1. **The full pipeline (AHP + Gini + Hurwicz + Dijkstra) reduces route cost by 47%** compared to plain Dijkstra on our test graph.
+1. The full pipeline (AHP + Gini + Hurwicz + Dijkstra) reduces route cost by 47% compared to plain Dijkstra on the test graph.
 
-2. **All multi-criteria approaches consistently outperform plain Dijkstra** across graph sizes from N = 10 to N = 2,000 — the improvement is not a coincidence.
+2. All multi-criteria approaches consistently outperform plain Dijkstra across graph sizes from N = 10 to N = 2000. The improvement is systematic, not coincidental.
 
-3. **The system scales well** — even at 2,000 nodes with 12,000 edges, the full pipeline runs in under 30 ms. It is fast enough for real-time use.
+3. The system scales well. Even at 2000 nodes with 12000 edges, the full pipeline runs in under 30 milliseconds. It is fast enough for real-time navigation use.
 
-4. **AHP + Hurwicz + Dijkstra** produces the lowest cost because the expert weights are well-tuned for this scenario. However, the full pipeline (adding Gini) makes the system more **robust** by balancing subjective and objective information.
+4. AHP + Hurwicz + Dijkstra produces the lowest cost because the expert weights are well-tuned for this scenario. However, the full pipeline with Gini makes the system more robust by balancing subjective and objective information.
 
-5. **The α and β parameters** give the decision-maker control over risk tolerance and weight balance without changing the algorithm.
+5. The alpha and beta parameters give the decision-maker direct control over risk tolerance and weight balance without modifying the algorithm itself.
 
-### Future work:
-
-- Apply to real-world road data (e.g., OpenStreetMap)
-- Add real-time data feeds (live traffic, weather, accident reports)
-- Test with A* algorithm (using a heuristic for faster convergence)
-- Extend to more criteria (fuel cost, road surface quality, elevation)
+Possible extensions include applying the system to real-world road data from OpenStreetMap, incorporating real-time data feeds for live traffic and weather conditions, implementing the A* algorithm with heuristics for faster convergence, and extending the model with additional criteria such as fuel consumption, road surface quality, or elevation changes.
 
 ---
 
@@ -447,35 +423,48 @@ We implemented a **5-step pipeline** that transforms Dijkstra's algorithm from a
 - Matplotlib
 - Tabulate
 
-### Install dependencies
+### Install Dependencies
+
+On Kali Linux or other Debian-based systems:
+
+```bash
+sudo apt install python3-numpy python3-networkx python3-matplotlib python3-tabulate
+```
+
+On other systems:
 
 ```bash
 pip install numpy networkx matplotlib tabulate
 ```
 
-### Run the full analysis
+### Run the Terminal Version
 
 ```bash
 cd multicriteria-routing
 python3 main.py
 ```
 
-This will:
-- Print all results to the terminal
-- Generate 7 figures in the `results/` folder
-- Run scalability tests from N = 10 to N = 2,000
+This prints all results to the terminal and generates 7 figures in the results folder.
 
-### Customize parameters
+### Run the Jupyter Notebook Version
 
-Open `main.py` and modify these values at the top of `main()`:
-
-```python
-ALPHA = 0.5          # Hurwicz optimism (0 = pessimistic, 1 = optimistic)
-BETA = 0.5           # Fusion balance (0 = data-driven, 1 = expert-driven)
-SEED = 42            # Random seed for reproducibility
-N_DEMO = 40          # Node count for the demo graph
-CONNECTIVITY = 0.15  # Edge density
+```bash
+sudo apt install jupyter-notebook
+cd multicriteria-routing
+jupyter notebook multicriteria_routing.ipynb
 ```
+
+Then click "Kernel" then "Restart and Run All" to execute all cells.
+
+### Customize Parameters
+
+Open main.py (terminal version) or modify the notebook cells directly:
+
+- ALPHA: Hurwicz optimism coefficient (0 = pessimistic, 1 = optimistic)
+- BETA: Fusion coefficient (0 = data-driven only, 1 = expert-driven only)
+- N_NODES: Number of intersections in the demo graph
+- CONNECTIVITY: Edge density of the network
+- The AHP comparison matrix can be modified to represent different driver profiles
 
 ---
 
@@ -483,22 +472,24 @@ CONNECTIVITY = 0.15  # Edge density
 
 ```
 multicriteria-routing/
-│
-├── main.py                 # Entry point — runs everything
-├── graph_generator.py      # Step 0: Random urban graph generation
-├── ahp.py                  # Step 1: AHP subjective weighting
-├── gini_weights.py         # Step 2: Gini objective weighting
-├── pipeline.py             # Steps 3-5: Fusion + Hurwicz + Dijkstra
-├── experiments.py          # Comparative evaluation & scalability
-├── visualizations.py       # All chart generation
-├── README.md               # This report
-│
-└── results/                # Generated figures (auto-created)
-    ├── ahp_analysis.png
-    ├── weight_comparison.png
-    ├── graph_paths.png
-    ├── criterion_comparison.png
-    ├── sensitivity_alpha.png
-    ├── sensitivity_beta.png
-    └── scalability.png
+|
+|-- main.py                          Main entry point (terminal version)
+|-- multicriteria_routing.ipynb      Jupyter Notebook version (interactive)
+|-- graph_generator.py               Graph generation with multi-criteria edges
+|-- ahp.py                           Step 1: AHP subjective weighting
+|-- gini_weights.py                  Step 2: Gini objective weighting
+|-- pipeline.py                      Steps 3-5: Fusion, Hurwicz, Dijkstra
+|-- experiments.py                   Comparative evaluation and scalability
+|-- visualizations.py                Chart generation (7 plot types)
+|-- build_notebook.py                Script to regenerate the notebook
+|-- README.md                        This report
+|
+|-- results/                         Generated figures
+    |-- ahp_analysis.png
+    |-- weight_comparison.png
+    |-- graph_paths.png
+    |-- criterion_comparison.png
+    |-- sensitivity_alpha.png
+    |-- sensitivity_beta.png
+    |-- scalability.png
 ```

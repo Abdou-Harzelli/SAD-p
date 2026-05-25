@@ -1,14 +1,3 @@
-"""
-Visualization Module — Charts, graphs, and comparative plots.
-
-Generates publication-quality figures for:
-  1. Graph topology with highlighted paths
-  2. Scalability charts (time vs N, cost vs N)
-  3. Sensitivity analysis plots (α and β)
-  4. Per-criterion radar/bar charts
-  5. AHP weight comparison
-"""
-
 import os
 import numpy as np
 import networkx as nx
@@ -21,7 +10,6 @@ from typing import Dict, List, Optional
 
 from graph_generator import CRITERIA
 
-# ── Styling ───────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "font.family": "sans-serif",
     "font.size": 11,
@@ -33,7 +21,6 @@ plt.rcParams.update({
     "savefig.dpi": 150,
 })
 
-# Color palette for the 4 approaches
 COLORS = {
     "Dijkstra": "#636EFA",
     "AHP+Hurwicz+Dijkstra": "#EF553B",
@@ -55,39 +42,27 @@ def ensure_output_dir():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║                     1. GRAPH VISUALIZATION                             ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
-
 def plot_graph_with_paths(
     G: nx.DiGraph,
     paths: Dict[str, List[int]],
     source: int,
     target: int,
-    title: str = "Urban Road Network — Path Comparison",
+    title: str = "Urban Road Network -- Path Comparison",
     filename: str = "graph_paths.png",
 ):
-    """
-    Plot the graph topology with multiple paths highlighted.
-    Uses large arc offsets, different line styles, and an overlap annotation
-    so ALL paths are always visible — even when routes are identical.
-    """
     ensure_output_dir()
     fig, ax = plt.subplots(1, 1, figsize=(14, 11))
 
     pos = nx.get_node_attributes(G, "pos")
 
-    # Draw base graph (faded)
     nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.08, edge_color="#cccccc",
                            width=0.5, arrows=True, arrowsize=5)
     nx.draw_networkx_nodes(G, pos, ax=ax, node_size=30, node_color="#cccccc", alpha=0.5)
 
-    # Large offsets + distinct line styles so overlapping paths are separated
     arc_radii = [-0.15, -0.05, 0.05, 0.15]
     line_styles = ["solid", "dashed", "dotted", "dashdot"]
     line_widths = [3.0, 2.8, 3.5, 2.5]
 
-    # Detect which paths share the same route
     path_tuples = {}
     for name, path in paths.items():
         key = tuple(path) if path else ()
@@ -103,7 +78,6 @@ def plot_graph_with_paths(
         ls = line_styles[idx % len(line_styles)]
         lw = line_widths[idx % len(line_widths)]
 
-        # Draw path edges with distinct arc and style
         nx.draw_networkx_edges(
             G, pos, edgelist=edges, ax=ax,
             edge_color=color, width=lw, alpha=0.85,
@@ -112,14 +86,12 @@ def plot_graph_with_paths(
             style=ls,
         )
 
-        # Draw path nodes (offset slightly for visibility)
         nx.draw_networkx_nodes(
             G, pos, nodelist=path, ax=ax,
             node_size=80, node_color=color, alpha=0.65,
             edgecolors="white", linewidths=1.0,
         )
 
-    # Highlight source and target
     nx.draw_networkx_nodes(
         G, pos, nodelist=[source], ax=ax,
         node_size=250, node_color="#2ECC71", edgecolors="black",
@@ -131,13 +103,11 @@ def plot_graph_with_paths(
         linewidths=2, label="Target", node_shape="*",
     )
 
-    # Labels for source/target
     nx.draw_networkx_labels(
         G, pos, labels={source: f"S={source}", target: f"T={target}"},
         ax=ax, font_size=10, font_weight="bold",
     )
 
-    # Legend with matching line styles
     legend_elements = []
     for idx, name in enumerate(paths):
         if paths[name]:
@@ -159,14 +129,13 @@ def plot_graph_with_paths(
     ax.legend(handles=legend_elements, loc="upper right", framealpha=0.9,
               fontsize=9, edgecolor="#cccccc")
 
-    # Add overlap annotation box if any paths share the same route
     overlap_lines = []
     for route, names in path_tuples.items():
         if len(names) > 1 and route:
-            route_str = "→".join(str(n) for n in route)
+            route_str = "->".join(str(n) for n in route)
             overlap_lines.append(f"Same route ({route_str}):\n  " + "\n  ".join(names))
     if overlap_lines:
-        note = "⚠ Overlapping Paths\n" + "\n".join(overlap_lines)
+        note = "Overlapping Paths\n" + "\n".join(overlap_lines)
         ax.text(0.02, 0.02, note, transform=ax.transAxes, fontsize=8,
                 verticalalignment="bottom",
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#FFF3CD",
@@ -180,13 +149,9 @@ def plot_graph_with_paths(
     filepath = os.path.join(OUTPUT_DIR, filename)
     fig.savefig(filepath)
     plt.close(fig)
-    print(f"  ✓ Saved: {filepath}")
+    print(f"  Saved: {filepath}")
     return filepath
 
-
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║                  2. SCALABILITY PLOTS                                  ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
 
 def plot_scalability(
     exp_results: Dict,
@@ -194,15 +159,11 @@ def plot_scalability(
     n_trials: int = 3,
     filename_prefix: str = "scalability",
 ):
-    """
-    Plot scalability charts: execution time and cost vs graph size.
-    """
     ensure_output_dir()
     approaches = list(exp_results.keys())
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
 
-    # ── 2a. Execution Time vs N ───────────────────────────────────────────
     ax = axes[0]
     for approach in approaches:
         avg_times = []
@@ -227,7 +188,6 @@ def plot_scalability(
     ax.set_xscale("log")
     ax.set_yscale("log")
 
-    # ── 2b. Cost vs N ────────────────────────────────────────────────────
     ax = axes[1]
     for approach in approaches:
         avg_costs = []
@@ -248,7 +208,6 @@ def plot_scalability(
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.2)
 
-    # ── 2c. Path Length vs N ──────────────────────────────────────────────
     ax = axes[2]
     for approach in approaches:
         avg_lengths = []
@@ -275,19 +234,14 @@ def plot_scalability(
     filepath = os.path.join(OUTPUT_DIR, f"{filename_prefix}.png")
     fig.savefig(filepath)
     plt.close(fig)
-    print(f"  ✓ Saved: {filepath}")
+    print(f"  Saved: {filepath}")
     return filepath
 
-
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║                  3. SENSITIVITY ANALYSIS PLOTS                         ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
 
 def plot_sensitivity_alpha(
     results: Dict,
     filename: str = "sensitivity_alpha.png",
 ):
-    """Plot how path cost and per-criterion values change with α."""
     ensure_output_dir()
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
@@ -295,19 +249,17 @@ def plot_sensitivity_alpha(
     alphas = results["alpha"]
     costs = results["cost"]
 
-    # ── Cost vs α ─────────────────────────────────────────────────────────
     ax = axes[0]
     ax.plot(alphas, costs, "o-", color="#AB63FA", linewidth=2.5, markersize=8)
     ax.fill_between(alphas, costs, alpha=0.15, color="#AB63FA")
-    ax.set_xlabel("α (Optimism Coefficient)", fontweight="bold")
+    ax.set_xlabel("alpha (Optimism Coefficient)", fontweight="bold")
     ax.set_ylabel("Composite Path Cost", fontweight="bold")
-    ax.set_title("Path Cost vs Hurwicz α", fontweight="bold")
+    ax.set_title("Path Cost vs Hurwicz alpha", fontweight="bold")
     ax.grid(True, alpha=0.2)
     ax.annotate("Pessimistic", xy=(0, costs[0]), fontsize=9, color="gray")
     ax.annotate("Optimistic", xy=(1, costs[-1]), fontsize=9, color="gray",
                 ha="right")
 
-    # ── Per-criterion vs α ────────────────────────────────────────────────
     ax = axes[1]
     crit_colors = ["#636EFA", "#EF553B", "#00CC96", "#FFA15A"]
     for i, c in enumerate(CRITERIA):
@@ -315,20 +267,20 @@ def plot_sensitivity_alpha(
         ax.plot(alphas, vals, "o-", color=crit_colors[i], linewidth=2,
                 markersize=6, label=c.replace("_", " ").title())
 
-    ax.set_xlabel("α (Optimism Coefficient)", fontweight="bold")
+    ax.set_xlabel("alpha (Optimism Coefficient)", fontweight="bold")
     ax.set_ylabel("Criterion Value (Path Total)", fontweight="bold")
-    ax.set_title("Per-Criterion Sensitivity to α", fontweight="bold")
+    ax.set_title("Per-Criterion Sensitivity to alpha", fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.2)
 
-    fig.suptitle("Sensitivity Analysis: α-Hurwicz Parameter", fontweight="bold",
+    fig.suptitle("Sensitivity Analysis: alpha-Hurwicz Parameter", fontweight="bold",
                  fontsize=14, y=1.02)
     fig.tight_layout()
 
     filepath = os.path.join(OUTPUT_DIR, filename)
     fig.savefig(filepath)
     plt.close(fig)
-    print(f"  ✓ Saved: {filepath}")
+    print(f"  Saved: {filepath}")
     return filepath
 
 
@@ -336,7 +288,6 @@ def plot_sensitivity_beta(
     results: Dict,
     filename: str = "sensitivity_beta.png",
 ):
-    """Plot how path cost changes with β (weight fusion parameter)."""
     ensure_output_dir()
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
@@ -344,19 +295,17 @@ def plot_sensitivity_beta(
     betas = results["beta"]
     costs = results["cost"]
 
-    # ── Cost vs β ─────────────────────────────────────────────────────────
     ax = axes[0]
     ax.plot(betas, costs, "s-", color="#EF553B", linewidth=2.5, markersize=8)
     ax.fill_between(betas, costs, alpha=0.15, color="#EF553B")
-    ax.set_xlabel("β (Fusion Coefficient)", fontweight="bold")
+    ax.set_xlabel("beta (Fusion Coefficient)", fontweight="bold")
     ax.set_ylabel("Composite Path Cost", fontweight="bold")
-    ax.set_title("Path Cost vs Fusion β", fontweight="bold")
+    ax.set_title("Path Cost vs Fusion beta", fontweight="bold")
     ax.grid(True, alpha=0.2)
     ax.annotate("Fully Objective\n(Gini only)", xy=(0, costs[0]), fontsize=8, color="gray")
     ax.annotate("Fully Subjective\n(AHP only)", xy=(1, costs[-1]), fontsize=8,
                 color="gray", ha="right")
 
-    # ── Per-criterion vs β ────────────────────────────────────────────────
     ax = axes[1]
     crit_colors = ["#636EFA", "#EF553B", "#00CC96", "#FFA15A"]
     for i, c in enumerate(CRITERIA):
@@ -364,34 +313,27 @@ def plot_sensitivity_beta(
         ax.plot(betas, vals, "s-", color=crit_colors[i], linewidth=2,
                 markersize=6, label=c.replace("_", " ").title())
 
-    ax.set_xlabel("β (Fusion Coefficient)", fontweight="bold")
+    ax.set_xlabel("beta (Fusion Coefficient)", fontweight="bold")
     ax.set_ylabel("Criterion Value (Path Total)", fontweight="bold")
-    ax.set_title("Per-Criterion Sensitivity to β", fontweight="bold")
+    ax.set_title("Per-Criterion Sensitivity to beta", fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.2)
 
-    fig.suptitle("Sensitivity Analysis: β Weight Fusion Parameter", fontweight="bold",
+    fig.suptitle("Sensitivity Analysis: beta Weight Fusion Parameter", fontweight="bold",
                  fontsize=14, y=1.02)
     fig.tight_layout()
 
     filepath = os.path.join(OUTPUT_DIR, filename)
     fig.savefig(filepath)
     plt.close(fig)
-    print(f"  ✓ Saved: {filepath}")
+    print(f"  Saved: {filepath}")
     return filepath
 
-
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║                  4. PER-CRITERION BAR CHART                            ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
 
 def plot_criterion_comparison(
     results: Dict,
     filename: str = "criterion_comparison.png",
 ):
-    """
-    Bar chart comparing per-criterion performance across all 4 approaches.
-    """
     ensure_output_dir()
 
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -412,7 +354,6 @@ def plot_criterion_comparison(
                       label=approach, color=COLORS.get(approach, "#999"),
                       edgecolor="white", linewidth=0.5)
 
-        # Add value labels
         for bar, val in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.01,
                     f"{val:.2f}", ha="center", va="bottom", fontsize=7)
@@ -429,13 +370,9 @@ def plot_criterion_comparison(
     filepath = os.path.join(OUTPUT_DIR, filename)
     fig.savefig(filepath)
     plt.close(fig)
-    print(f"  ✓ Saved: {filepath}")
+    print(f"  Saved: {filepath}")
     return filepath
 
-
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║                  5. WEIGHT COMPARISON CHART                            ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
 
 def plot_weight_comparison(
     ws: np.ndarray,
@@ -444,9 +381,6 @@ def plot_weight_comparison(
     beta: float = 0.5,
     filename: str = "weight_comparison.png",
 ):
-    """
-    Grouped bar chart comparing AHP weights, Gini weights, and fused weights.
-    """
     ensure_output_dir()
 
     fig, ax = plt.subplots(figsize=(10, 5.5))
@@ -458,10 +392,9 @@ def plot_weight_comparison(
                    color="#636EFA", edgecolor="white")
     bars2 = ax.bar(x, wo, width, label="Gini (Objective)",
                    color="#00CC96", edgecolor="white")
-    bars3 = ax.bar(x + width, W, width, label=f"Fused (β={beta})",
+    bars3 = ax.bar(x + width, W, width, label=f"Fused (beta={beta})",
                    color="#AB63FA", edgecolor="white")
 
-    # Value labels
     for bars in [bars1, bars2, bars3]:
         for bar in bars:
             h = bar.get_height()
@@ -481,13 +414,9 @@ def plot_weight_comparison(
     filepath = os.path.join(OUTPUT_DIR, filename)
     fig.savefig(filepath)
     plt.close(fig)
-    print(f"  ✓ Saved: {filepath}")
+    print(f"  Saved: {filepath}")
     return filepath
 
-
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║                  6. AHP CONSISTENCY CHART                              ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
 
 def plot_ahp_matrix(
     comparison_matrix: np.ndarray,
@@ -495,15 +424,11 @@ def plot_ahp_matrix(
     cr: float,
     filename: str = "ahp_analysis.png",
 ):
-    """
-    Heatmap of the AHP comparison matrix with derived weights.
-    """
     ensure_output_dir()
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5),
                               gridspec_kw={"width_ratios": [1.5, 1]})
 
-    # ── Heatmap ───────────────────────────────────────────────────────────
     ax = axes[0]
     labels = [c.replace("_", "\n").title() for c in CRITERIA]
     im = ax.imshow(comparison_matrix, cmap="YlOrRd", aspect="auto")
@@ -513,7 +438,6 @@ def plot_ahp_matrix(
     ax.set_xticklabels(labels, fontsize=9)
     ax.set_yticklabels(labels, fontsize=9)
 
-    # Annotate cells
     for i in range(len(CRITERIA)):
         for j in range(len(CRITERIA)):
             val = comparison_matrix[i][j]
@@ -525,7 +449,6 @@ def plot_ahp_matrix(
                  fontweight="bold")
     fig.colorbar(im, ax=ax, shrink=0.8)
 
-    # ── Weight bars ───────────────────────────────────────────────────────
     ax = axes[1]
     colors = ["#636EFA", "#EF553B", "#00CC96", "#FFA15A"]
     bars = ax.barh(range(len(CRITERIA)), weights, color=colors, edgecolor="white")
@@ -544,5 +467,5 @@ def plot_ahp_matrix(
     filepath = os.path.join(OUTPUT_DIR, filename)
     fig.savefig(filepath)
     plt.close(fig)
-    print(f"  ✓ Saved: {filepath}")
+    print(f"  Saved: {filepath}")
     return filepath
