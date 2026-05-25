@@ -69,9 +69,11 @@ def plot_graph_with_paths(
 ):
     """
     Plot the graph topology with multiple paths highlighted.
+    Uses large arc offsets, different line styles, and an overlap annotation
+    so ALL paths are always visible — even when routes are identical.
     """
     ensure_output_dir()
-    fig, ax = plt.subplots(1, 1, figsize=(12, 10))
+    fig, ax = plt.subplots(1, 1, figsize=(14, 11))
 
     pos = nx.get_node_attributes(G, "pos")
 
@@ -80,53 +82,71 @@ def plot_graph_with_paths(
                            width=0.5, arrows=True, arrowsize=5)
     nx.draw_networkx_nodes(G, pos, ax=ax, node_size=30, node_color="#cccccc", alpha=0.5)
 
-    # Draw each path with a different color
-    offsets = [-0.003, -0.001, 0.001, 0.003]
+    # Large offsets + distinct line styles so overlapping paths are separated
+    arc_radii = [-0.15, -0.05, 0.05, 0.15]
+    line_styles = ["solid", "dashed", "dotted", "dashdot"]
+    line_widths = [3.0, 2.8, 3.5, 2.5]
+
+    # Detect which paths share the same route
+    path_tuples = {}
+    for name, path in paths.items():
+        key = tuple(path) if path else ()
+        path_tuples.setdefault(key, []).append(name)
+
     for idx, (name, path) in enumerate(paths.items()):
         if not path or len(path) < 2:
             continue
 
         edges = [(path[i], path[i+1]) for i in range(len(path)-1)]
         color = COLORS.get(name, "#333333")
+        rad = arc_radii[idx % len(arc_radii)]
+        ls = line_styles[idx % len(line_styles)]
+        lw = line_widths[idx % len(line_widths)]
 
-        # Draw path edges
+        # Draw path edges with distinct arc and style
         nx.draw_networkx_edges(
             G, pos, edgelist=edges, ax=ax,
-            edge_color=color, width=2.5, alpha=0.85,
-            arrows=True, arrowsize=12,
-            connectionstyle=f"arc3,rad={offsets[idx % len(offsets)]}",
+            edge_color=color, width=lw, alpha=0.85,
+            arrows=True, arrowsize=14,
+            connectionstyle=f"arc3,rad={rad}",
+            style=ls,
         )
 
-        # Draw path nodes
+        # Draw path nodes (offset slightly for visibility)
         nx.draw_networkx_nodes(
             G, pos, nodelist=path, ax=ax,
-            node_size=60, node_color=color, alpha=0.7,
-            edgecolors="white", linewidths=0.8,
+            node_size=80, node_color=color, alpha=0.65,
+            edgecolors="white", linewidths=1.0,
         )
 
     # Highlight source and target
     nx.draw_networkx_nodes(
         G, pos, nodelist=[source], ax=ax,
-        node_size=200, node_color="#2ECC71", edgecolors="black",
+        node_size=250, node_color="#2ECC71", edgecolors="black",
         linewidths=2, label="Source",
     )
     nx.draw_networkx_nodes(
         G, pos, nodelist=[target], ax=ax,
-        node_size=200, node_color="#E74C3C", edgecolors="black",
+        node_size=250, node_color="#E74C3C", edgecolors="black",
         linewidths=2, label="Target", node_shape="*",
     )
 
     # Labels for source/target
     nx.draw_networkx_labels(
         G, pos, labels={source: f"S={source}", target: f"T={target}"},
-        ax=ax, font_size=9, font_weight="bold",
+        ax=ax, font_size=10, font_weight="bold",
     )
 
-    # Legend
-    legend_elements = [
-        Line2D([0], [0], color=COLORS[name], lw=2.5, label=name)
-        for name in paths if paths[name]
-    ]
+    # Legend with matching line styles
+    legend_elements = []
+    for idx, name in enumerate(paths):
+        if paths[name]:
+            legend_elements.append(
+                Line2D([0], [0], color=COLORS[name],
+                       lw=line_widths[idx % len(line_widths)],
+                       linestyle=line_styles[idx % len(line_styles)],
+                       label=name)
+            )
     legend_elements.append(
         Line2D([0], [0], marker='o', color='w', markerfacecolor='#2ECC71',
                markersize=10, label='Source')
@@ -138,6 +158,20 @@ def plot_graph_with_paths(
 
     ax.legend(handles=legend_elements, loc="upper right", framealpha=0.9,
               fontsize=9, edgecolor="#cccccc")
+
+    # Add overlap annotation box if any paths share the same route
+    overlap_lines = []
+    for route, names in path_tuples.items():
+        if len(names) > 1 and route:
+            route_str = "→".join(str(n) for n in route)
+            overlap_lines.append(f"Same route ({route_str}):\n  " + "\n  ".join(names))
+    if overlap_lines:
+        note = "⚠ Overlapping Paths\n" + "\n".join(overlap_lines)
+        ax.text(0.02, 0.02, note, transform=ax.transAxes, fontsize=8,
+                verticalalignment="bottom",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="#FFF3CD",
+                          edgecolor="#FFC107", alpha=0.9))
+
     ax.set_title(title, fontweight="bold", pad=15)
     ax.set_xlabel("X coordinate")
     ax.set_ylabel("Y coordinate")
